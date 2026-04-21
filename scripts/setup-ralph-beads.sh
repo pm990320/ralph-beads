@@ -7,6 +7,7 @@ set -euo pipefail
 
 MAX_ITERATIONS=100
 EXTRA_GUIDANCE_PARTS=()
+PARENT_IDS=()
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -23,24 +24,26 @@ ARGUMENTS:
 
 OPTIONS:
   --max-iterations <n>   Safety cap on loop iterations (default: 100, 0 = unlimited)
+  --parent <id[,id..]>   Scope the loop to one or more parent beads/epics.
+                         Only transitive descendants are worked and counted.
+                         Repeatable; comma-separated also accepted.
   -h, --help             Show this help
 
 DESCRIPTION:
   Starts a Ralph-Wiggum-style loop in the current session. Each iteration tells
   Claude to query `bd ready`, claim one ready bead, work it to completion, and
-  close it with `bd close`. The stop hook reruns the same prompt until:
+  close it with `bd close`. The stop hook reruns the same prompt until no
+  descendant beads remain open/in_progress/blocked (or until --max-iterations).
 
-    bd count --status open        == 0
-    bd count --status in_progress == 0
-    bd count --status blocked     == 0
-
-  …or until --max-iterations is reached.
-
-  No `<promise>` tag is required — completion is measured from beads state.
+  When --parent is passed, both the picker and the completion check are scoped
+  to transitive descendants of the given bead(s). No `<promise>` tag is required
+  — completion is measured from beads state.
 
 EXAMPLES:
   /ralph-beads
   /ralph-beads --max-iterations 50
+  /ralph-beads --parent bd-42
+  /ralph-beads --parent bd-42,bd-43 prefer P0 first
   /ralph-beads prefer P0 and P1 first, run make test after each bead
 
 CANCEL:
@@ -54,6 +57,18 @@ HELP_EOF
         exit 1
       fi
       MAX_ITERATIONS="$2"
+      shift 2
+      ;;
+    --parent)
+      if [[ -z "${2:-}" ]]; then
+        echo "❌ --parent requires a bead id (e.g. --parent bd-42 or --parent bd-42,bd-43)" >&2
+        exit 1
+      fi
+      IFS=',' read -r -a _split <<< "$2"
+      for _id in "${_split[@]}"; do
+        _id="${_id// /}"
+        [[ -n "$_id" ]] && PARENT_IDS+=("$_id")
+      done
       shift 2
       ;;
     *)
@@ -75,7 +90,24 @@ if [[ ! -d .beads ]]; then
   exit 1
 fi
 
+# Validate any --parent IDs exist before we write state. Fail fast rather than
+# letting the loop spin on an empty descendant set.
+for pid in "${PARENT_IDS[@]}"; do
+  if ! bd show "$pid" >/dev/null 2>&1; then
+    echo "❌ ralph-beads: --parent '$pid' does not resolve to a bead." >&2
+    exit 1
+  fi
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib-bd-descendants.sh
+source "$SCRIPT_DIR/lib-bd-descendants.sh"
+
 EXTRA_GUIDANCE="${EXTRA_GUIDANCE_PARTS[*]:-}"
+PARENTS_CSV=""
+if [[ ${#PARENT_IDS[@]} -gt 0 ]]; then
+  PARENTS_CSV=$(IFS=,; echo "${PARENT_IDS[*]}")
+fi
 
 mkdir -p .claude
 
@@ -117,6 +149,24 @@ PROMPT_EOF
 )
 
 PROMPT="$BASE_PROMPT"
+if [[ -n "$PARENTS_CSV" ]]; then
+  PROMPT="$PROMPT
+
+Scope constraint:
+This loop is scoped to transitive descendants of the following parent bead(s): ${PARENTS_CSV}.
+- Pick work with \`bd ready --parent <id>\` — iterate over each listed parent if
+  there are multiple and merge results. Do NOT use plain \`bd ready\` — it would
+  surface out-of-scope beads.
+- Do not open, update, or close beads that are not descendants of the listed
+  parents (you may still read them with \`bd show\` for context).
+- If a scoped bead needs a new child bead, create it with \`bd create\` and link
+  it under the same parent via \`bd dep add <parent> parent-of <new-id>\` so it
+  stays in scope.
+- The loop terminates when no descendants of the listed parents are
+  open/in_progress/blocked. The parent beads themselves are NOT counted — close
+  them yourself if you want, or run \`bd epic close-eligible\` at the end."
+fi
+
 if [[ -n "$EXTRA_GUIDANCE" ]]; then
   PROMPT="$PROMPT
 
@@ -129,19 +179,33 @@ cat > "$STATE_FILE" <<EOF
 active: true
 iteration: 1
 max_iterations: $MAX_ITERATIONS
+parents: "$PARENTS_CSV"
 started_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ---
 
 $PROMPT
 EOF
 
-OPEN=$(bd count --status open 2>/dev/null | tail -1)
-IN_PROGRESS=$(bd count --status in_progress 2>/dev/null | tail -1)
-BLOCKED=$(bd count --status blocked 2>/dev/null | tail -1)
+if [[ -n "$PARENTS_CSV" ]]; then
+  ALL_SNAPSHOT=$(bd_snapshot_all)
+  DESC_IDS=$(bd_descendants "$ALL_SNAPSHOT" "${PARENT_IDS[@]}")
+  OPEN=$(bd_count_among "$ALL_SNAPSHOT" open "$DESC_IDS")
+  IN_PROGRESS=$(bd_count_among "$ALL_SNAPSHOT" in_progress "$DESC_IDS")
+  BLOCKED=$(bd_count_among "$ALL_SNAPSHOT" blocked "$DESC_IDS")
+else
+  OPEN=$(bd count --status open 2>/dev/null | tail -1)
+  IN_PROGRESS=$(bd count --status in_progress 2>/dev/null | tail -1)
+  BLOCKED=$(bd count --status blocked 2>/dev/null | tail -1)
+fi
 [[ "$OPEN" =~ ^[0-9]+$ ]] || OPEN=0
 [[ "$IN_PROGRESS" =~ ^[0-9]+$ ]] || IN_PROGRESS=0
 [[ "$BLOCKED" =~ ^[0-9]+$ ]] || BLOCKED=0
 TOTAL=$((OPEN + IN_PROGRESS + BLOCKED))
+
+SCOPE_LINE="Beads remaining: open=$OPEN in_progress=$IN_PROGRESS blocked=$BLOCKED (total=$TOTAL)"
+if [[ -n "$PARENTS_CSV" ]]; then
+  SCOPE_LINE="$SCOPE_LINE  [scoped to: $PARENTS_CSV]"
+fi
 
 cat <<EOF
 🔄 ralph-beads loop activated.
@@ -149,10 +213,10 @@ cat <<EOF
 State file:      $STATE_FILE
 Iteration:       1
 Max iterations:  $(if [[ $MAX_ITERATIONS -gt 0 ]]; then echo $MAX_ITERATIONS; else echo "unlimited"; fi)
-Beads remaining: open=$OPEN in_progress=$IN_PROGRESS blocked=$BLOCKED (total=$TOTAL)
+$SCOPE_LINE
 
-The stop hook will keep feeding this prompt back until every bead is closed
-or --max-iterations is hit. Cancel with /cancel-ralph-beads.
+The stop hook will keep feeding this prompt back until every scoped bead is
+closed or --max-iterations is hit. Cancel with /cancel-ralph-beads.
 EOF
 
 if [[ $TOTAL -eq 0 ]]; then

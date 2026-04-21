@@ -23,6 +23,7 @@ fi
 FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE")
 ITERATION=$(echo "$FRONTMATTER" | grep '^iteration:' | sed 's/iteration: *//')
 MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//')
+PARENTS_CSV=$(echo "$FRONTMATTER" | grep '^parents:' | sed -E 's/^parents:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/')
 
 if [[ ! "$ITERATION" =~ ^[0-9]+$ ]] || [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
   echo "⚠️  ralph-beads: state file $STATE_FILE is corrupted — stopping" >&2
@@ -30,10 +31,18 @@ if [[ ! "$ITERATION" =~ ^[0-9]+$ ]] || [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; th
   exit 0
 fi
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DESC="$HOOK_DIR/../scripts/lib-bd-descendants.sh"
+if [[ -n "$PARENTS_CSV" && ! -f "$LIB_DESC" ]]; then
+  echo "⚠️  ralph-beads: descendant helper not found at $LIB_DESC — stopping" >&2
+  rm -f "$STATE_FILE"
+  exit 0
+fi
+
 count_status() {
-  local status="$1"
+  local want="$1"
   local out
-  out=$(bd count --status "$status" 2>/dev/null | tail -1)
+  out=$(bd count --status "$want" 2>/dev/null | tail -1)
   if [[ "$out" =~ ^[0-9]+$ ]]; then
     echo "$out"
   else
@@ -41,9 +50,20 @@ count_status() {
   fi
 }
 
-OPEN=$(count_status open)
-IN_PROGRESS=$(count_status in_progress)
-BLOCKED=$(count_status blocked)
+if [[ -n "$PARENTS_CSV" ]]; then
+  # shellcheck disable=SC1090
+  source "$LIB_DESC"
+  IFS=',' read -r -a _parent_ids <<< "$PARENTS_CSV"
+  ALL_SNAPSHOT=$(bd_snapshot_all)
+  DESC_IDS=$(bd_descendants "$ALL_SNAPSHOT" "${_parent_ids[@]}")
+  OPEN=$(bd_count_among "$ALL_SNAPSHOT" open "$DESC_IDS")
+  IN_PROGRESS=$(bd_count_among "$ALL_SNAPSHOT" in_progress "$DESC_IDS")
+  BLOCKED=$(bd_count_among "$ALL_SNAPSHOT" blocked "$DESC_IDS")
+else
+  OPEN=$(count_status open)
+  IN_PROGRESS=$(count_status in_progress)
+  BLOCKED=$(count_status blocked)
+fi
 REMAINING=$((OPEN + IN_PROGRESS + BLOCKED))
 
 emit_allow_stop() {
@@ -79,6 +99,9 @@ sed "s/^iteration: .*/iteration: $NEXT_ITERATION/" "$STATE_FILE" > "$TEMP_FILE"
 mv "$TEMP_FILE" "$STATE_FILE"
 
 SNAPSHOT="Beads remaining: open=$OPEN in_progress=$IN_PROGRESS blocked=$BLOCKED (total=$REMAINING)"
+if [[ -n "$PARENTS_CSV" ]]; then
+  SNAPSHOT="$SNAPSHOT [scoped to: $PARENTS_CSV]"
+fi
 
 if [[ $MAX_ITERATIONS -gt 0 ]]; then
   SYSTEM_MSG="🔄 ralph-beads iteration $NEXT_ITERATION/$MAX_ITERATIONS | $SNAPSHOT"

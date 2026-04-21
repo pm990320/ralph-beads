@@ -29,9 +29,11 @@ No `<promise>` tag, no custom completion phrase — **completion is measured dir
 
 ## Commands
 
-### /ralph-beads [GUIDANCE...] [--max-iterations N]
+### /ralph-beads [GUIDANCE...] [--max-iterations N] [--parent ID[,ID...]]
 
 Start the loop. All positional args are optional and get appended as extra operator guidance (e.g. "prefer P0 first, run make test after each bead"). `--max-iterations 0` means unlimited.
+
+`--parent <id>` (repeatable, comma-separated also accepted) scopes the loop to transitive descendants of the given bead(s). Both the picker (via `bd ready --parent <id>`) and the completion check use the scoped set — the loop ends when no descendants of the listed parents are open/in_progress/blocked. The parent beads themselves are never counted, so epics aren't required to be "closed" for the loop to finish.
 
 ### /cancel-ralph-beads
 

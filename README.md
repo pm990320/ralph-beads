@@ -58,13 +58,23 @@ Requires `jq` on `PATH` (used by both the installer and the Stop hook).
 
 | Harness | Invocation | Description |
 |---|---|---|
-| Claude Code | `/ralph-beads [GUIDANCE...] [--max-iterations N]` | Start the loop. Extra args become operator guidance appended to the built-in prompt. `--max-iterations` defaults to 100 (`0` = unlimited). |
+| Claude Code | `/ralph-beads [GUIDANCE...] [--max-iterations N] [--parent ID[,ID...]]` | Start the loop. Extra args become operator guidance appended to the built-in prompt. `--max-iterations` defaults to 100 (`0` = unlimited). `--parent` scopes the loop to transitive descendants of one or more parent beads/epics. |
 | Claude Code | `/cancel-ralph-beads` | Delete the state file so the next Stop exits cleanly. |
 | Claude Code | `/ralph-beads:help` | In-session help. |
-| Codex | `$ralph-beads [GUIDANCE...] [--max-iterations N]` (or `/skills` picker, or just ask "run ralph-beads") | Same behavior as the Claude Code version. |
+| Codex | `$ralph-beads [GUIDANCE...] [--max-iterations N] [--parent ID[,ID...]]` (or `/skills` picker, or just ask "run ralph-beads under bd-42") | Same behavior as the Claude Code version. |
 | Codex | `$cancel-ralph-beads` | Cancel the active loop. |
 
-Under Codex, Skills are selected by the model — there's no direct slash-command-with-args primitive. The skill's instructions tell the model to parse `--max-iterations N` and free-form guidance out of your message and forward them to `setup-ralph-beads.sh`.
+Under Codex, Skills are selected by the model — there's no direct slash-command-with-args primitive. The skill's instructions tell the model to parse `--max-iterations N`, `--parent <id>`, and free-form guidance out of your message and forward them to `setup-ralph-beads.sh`.
+
+### Scoping to an epic (or several)
+
+Pass `--parent <id>` (repeatable, or comma-separated) to restrict the loop to transitive descendants of one or more parent beads. Both the picker (via `bd ready --parent <id>`) and the completion check are scoped — the loop terminates when no descendant is open/in_progress/blocked. The parent beads themselves are never counted, so you can close them manually at the end (or run `bd epic close-eligible`).
+
+```
+/ralph-beads --parent bd-42
+/ralph-beads --parent bd-42,bd-43
+/ralph-beads --parent bd-42 --max-iterations 25 prefer P0 first
+```
 
 ## Requirements
 
@@ -80,6 +90,12 @@ Under Codex, Skills are selected by the model — there's no direct slash-comman
 
 # Cap iterations
 /ralph-beads --max-iterations 25
+
+# Scope to an epic (transitive descendants)
+/ralph-beads --parent bd-42
+
+# Scope to multiple epics
+/ralph-beads --parent bd-42,bd-43 --max-iterations 25
 
 # Extra operator guidance
 /ralph-beads prefer P0 first, run `make test` after each bead, never touch infra/
