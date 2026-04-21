@@ -100,7 +100,7 @@ for pid in "${PARENT_IDS[@]}"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./lib-bd-descendants.sh
+# shellcheck source=scripts/lib-bd-descendants.sh
 source "$SCRIPT_DIR/lib-bd-descendants.sh"
 
 EXTRA_GUIDANCE="${EXTRA_GUIDANCE_PARTS[*]:-}"
@@ -212,7 +212,7 @@ cat <<EOF
 
 State file:      $STATE_FILE
 Iteration:       1
-Max iterations:  $(if [[ $MAX_ITERATIONS -gt 0 ]]; then echo $MAX_ITERATIONS; else echo "unlimited"; fi)
+Max iterations:  $(if [[ $MAX_ITERATIONS -gt 0 ]]; then echo "$MAX_ITERATIONS"; else echo "unlimited"; fi)
 $SCOPE_LINE
 
 The stop hook will keep feeding this prompt back until every scoped bead is

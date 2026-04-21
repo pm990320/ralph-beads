@@ -57,6 +57,9 @@ bd_descendants() {
   local trimmed="${visited_descs# }"
   trimmed="${trimmed% }"
   if [[ -n "$trimmed" ]]; then
+    # Intentional word-splitting: $trimmed is our space-delimited ID set and we
+    # want printf to treat each token as a separate argument (one line per ID).
+    # shellcheck disable=SC2086
     printf '%s\n' $trimmed
   fi
 }

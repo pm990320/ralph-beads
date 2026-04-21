@@ -6,7 +6,9 @@
 
 set -euo pipefail
 
-HOOK_INPUT=$(cat)
+# Drain the JSON hook payload on stdin — we don't currently inspect it, but
+# leaving it unread can cause the harness to block or flag a broken pipe.
+cat >/dev/null
 
 STATE_FILE=".claude/ralph-beads.local.md"
 
