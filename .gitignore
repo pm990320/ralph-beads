@@ -1,0 +1,9 @@
+# Claude Code local settings — contains per-host absolute paths and permission caches
+.claude/settings.local.json
+
+# macOS
+.DS_Store
+
+# Ralph-beads runtime state (written by setup-ralph-beads.sh into target repos, but
+# might accidentally appear here during development)
+.claude/ralph-beads.local.md

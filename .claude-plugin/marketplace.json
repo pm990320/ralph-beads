@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ralph-beads",
+  "description": "Ralph-Wiggum-style loop driven by the beads (bd) issue tracker. Iterates until every bead is closed.",
+  "owner": {
+    "name": "pm990320",
+    "url": "https://github.com/pm990320"
+  },
+  "plugins": [
+    {
+      "name": "ralph-beads",
+      "description": "Ralph loop that drains the beads queue — no user prompt required.",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/pm990320/ralph-beads"
+    }
+  ]
+}

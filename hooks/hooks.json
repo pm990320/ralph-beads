@@ -1,0 +1,15 @@
+{
+  "description": "Ralph-beads plugin stop hook — keeps the session looping until beads are empty",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "ralph-beads",
+  "version": "0.1.0",
+  "description": "Ralph Wiggum-style self-referential loop driven by the beads (bd) issue tracker. Iterates until every bead is closed — no prompt required.",
+  "homepage": "https://github.com/pm990320/ralph-beads",
+  "author": {
+    "name": "pm990320",
+    "url": "https://github.com/pm990320"
+  }
+}
