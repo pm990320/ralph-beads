@@ -46,14 +46,21 @@ IN_PROGRESS=$(count_status in_progress)
 BLOCKED=$(count_status blocked)
 REMAINING=$((OPEN + IN_PROGRESS + BLOCKED))
 
+emit_allow_stop() {
+  # Emit a valid "allow the stop to proceed" JSON payload. No `decision` field,
+  # so neither Claude Code nor Codex blocks termination. `systemMessage` is shown
+  # as a UI notice in both harnesses.
+  jq -n --arg msg "$1" '{ "systemMessage": $msg }'
+}
+
 if [[ $REMAINING -eq 0 ]]; then
-  echo "✅ ralph-beads: no remaining beads (open=0 in_progress=0 blocked=0). Loop complete after $ITERATION iteration(s)."
+  emit_allow_stop "✅ ralph-beads: no remaining beads (open=0 in_progress=0 blocked=0). Loop complete after $ITERATION iteration(s)."
   rm -f "$STATE_FILE"
   exit 0
 fi
 
 if [[ $MAX_ITERATIONS -gt 0 ]] && [[ $ITERATION -ge $MAX_ITERATIONS ]]; then
-  echo "🛑 ralph-beads: max iterations ($MAX_ITERATIONS) reached with $REMAINING bead(s) still open. Stopping."
+  emit_allow_stop "🛑 ralph-beads: max iterations ($MAX_ITERATIONS) reached with $REMAINING bead(s) still open. Stopping."
   rm -f "$STATE_FILE"
   exit 0
 fi
