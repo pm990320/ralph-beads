@@ -92,12 +92,14 @@ fi
 
 # Validate any --parent IDs exist before we write state. Fail fast rather than
 # letting the loop spin on an empty descendant set.
-for pid in "${PARENT_IDS[@]}"; do
-  if ! bd show "$pid" >/dev/null 2>&1; then
-    echo "❌ ralph-beads: --parent '$pid' does not resolve to a bead." >&2
-    exit 1
-  fi
-done
+if [[ ${#PARENT_IDS[@]} -gt 0 ]]; then
+  for pid in "${PARENT_IDS[@]}"; do
+    if ! bd show "$pid" >/dev/null 2>&1; then
+      echo "❌ ralph-beads: --parent '$pid' does not resolve to a bead." >&2
+      exit 1
+    fi
+  done
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib-bd-descendants.sh
