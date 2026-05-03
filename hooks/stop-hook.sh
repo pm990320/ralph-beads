@@ -23,11 +23,13 @@ if ! command -v bd >/dev/null 2>&1; then
 fi
 
 FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$STATE_FILE")
-ITERATION=$(echo "$FRONTMATTER" | grep '^iteration:' | sed 's/iteration: *//')
-MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//')
-PARENTS_CSV=$(echo "$FRONTMATTER" | grep '^parents:' | sed -E 's/^parents:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/')
+ITERATION=$(sed -n 's/^iteration:[[:space:]]*//p' <<< "$FRONTMATTER")
+MAX_ITERATIONS=$(sed -n 's/^max_iterations:[[:space:]]*//p' <<< "$FRONTMATTER")
+PARENTS_CSV=$(sed -n -E 's/^parents:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/p' <<< "$FRONTMATTER")
+PARALLEL=$(sed -n 's/^parallel:[[:space:]]*//p' <<< "$FRONTMATTER")
+[[ -n "$PARALLEL" ]] || PARALLEL=1
 
-if [[ ! "$ITERATION" =~ ^[0-9]+$ ]] || [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
+if [[ ! "$ITERATION" =~ ^[0-9]+$ ]] || [[ ! "$MAX_ITERATIONS" =~ ^[0-9]+$ ]] || [[ ! "$PARALLEL" =~ ^[0-9]+$ ]] || [[ "$PARALLEL" -lt 1 ]]; then
   echo "⚠️  ralph-beads: state file $STATE_FILE is corrupted — stopping" >&2
   rm -f "$STATE_FILE"
   exit 0
@@ -100,7 +102,7 @@ TEMP_FILE="${STATE_FILE}.tmp.$$"
 sed "s/^iteration: .*/iteration: $NEXT_ITERATION/" "$STATE_FILE" > "$TEMP_FILE"
 mv "$TEMP_FILE" "$STATE_FILE"
 
-SNAPSHOT="Beads remaining: open=$OPEN in_progress=$IN_PROGRESS blocked=$BLOCKED (total=$REMAINING)"
+SNAPSHOT="Beads remaining: open=$OPEN in_progress=$IN_PROGRESS blocked=$BLOCKED (total=$REMAINING); parallel=$PARALLEL"
 if [[ -n "$PARENTS_CSV" ]]; then
   SNAPSHOT="$SNAPSHOT [scoped to: $PARENTS_CSV]"
 fi
@@ -116,7 +118,8 @@ FULL_PROMPT="${PROMPT_TEXT}
 ---
 
 Current bead snapshot: ${SNAPSHOT}
-Loop iteration: ${NEXT_ITERATION}$(if [[ $MAX_ITERATIONS -gt 0 ]]; then echo " of ${MAX_ITERATIONS}"; fi)"
+Loop iteration: ${NEXT_ITERATION}$(if [[ $MAX_ITERATIONS -gt 0 ]]; then echo " of ${MAX_ITERATIONS}"; fi)
+Parallel limit: ${PARALLEL}"
 
 jq -n \
   --arg prompt "$FULL_PROMPT" \

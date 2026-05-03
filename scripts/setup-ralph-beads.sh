@@ -6,6 +6,7 @@
 set -euo pipefail
 
 MAX_ITERATIONS=100
+PARALLEL=1
 EXTRA_GUIDANCE_PARTS=()
 PARENT_IDS=()
 
@@ -27,12 +28,15 @@ OPTIONS:
   --parent <id[,id..]>   Scope the loop to one or more parent beads/epics.
                          Only transitive descendants are worked and counted.
                          Repeatable; comma-separated also accepted.
+  --parallel <n>         Maximum beads/sub-agents to coordinate per iteration
+                         (default: 1, which preserves serial behavior).
   -h, --help             Show this help
 
 DESCRIPTION:
   Starts a Ralph-Wiggum-style loop in the current session. Each iteration tells
-  Claude to query `bd ready`, claim one ready bead, work it to completion, and
-  close it with `bd close`. The stop hook reruns the same prompt until no
+  Claude to query `bd ready`, claim one ready bead by default (or a safe
+  coordinator batch with --parallel N), work/coordinate it to completion, and
+  close verified beads with `bd close`. The stop hook reruns the same prompt until no
   descendant beads remain open/in_progress/blocked (or until --max-iterations).
 
   When --parent is passed, both the picker and the completion check are scoped
@@ -44,6 +48,7 @@ EXAMPLES:
   /ralph-beads --max-iterations 50
   /ralph-beads --parent bd-42
   /ralph-beads --parent bd-42,bd-43 prefer P0 first
+  /ralph-beads --parallel 4 prefer independent docs/tests first
   /ralph-beads prefer P0 and P1 first, run make test after each bead
 
 CANCEL:
@@ -57,6 +62,14 @@ HELP_EOF
         exit 1
       fi
       MAX_ITERATIONS="$2"
+      shift 2
+      ;;
+    --parallel)
+      if [[ -z "${2:-}" ]] || ! [[ "$2" =~ ^[0-9]+$ ]] || [[ "$2" -lt 1 ]]; then
+        echo "❌ --parallel requires a positive integer (got: '${2:-}')" >&2
+        exit 1
+      fi
+      PARALLEL="$2"
       shift 2
       ;;
     --parent)
@@ -124,24 +137,43 @@ Each iteration of this loop:
    - If nothing is ready but `bd count --status blocked` > 0, investigate the
      blockers — resolve them, close stale dependencies, or document why the
      blocked beads cannot proceed and close them with a reason.
-2. Pick ONE bead to work on. Prefer the highest-priority ready bead
-   (P0 > P1 > P2 > P3). Break ties by oldest created_at.
-3. Run `bd show <id>` to read the full description and acceptance criteria.
-4. Mark it in progress with `bd update <id> --status in_progress` (or
-   `bd set-state <id> in_progress`) so the loop's snapshot stays accurate.
-5. Do the actual work: read/edit/write code, run tests, etc. Follow any
-   repo-level CLAUDE.md / AGENTS.md instructions.
-6. Verify the acceptance criteria are met. Run tests/lint if the repo has them.
-7. Close the bead with `bd close <id> -r "<one-line summary>"`. Only close
-   when the work is genuinely done — do not close to escape the loop.
-8. Commit your changes if the repo is a git repo and the user has not said
-   otherwise. Keep commits scoped to the bead you just closed.
+2. Choose work for this iteration:
+   - If `parallel: 1`, pick exactly ONE bead. Prefer the highest-priority ready
+     bead (P0 > P1 > P2 > P3). Break ties by oldest created_at.
+   - If `parallel` is greater than 1, act as a coordinator. Build a batch of up
+     to `parallel` ready beads that are safe to work in parallel. Prefer
+     independent beads with disjoint likely write sets, packages, components,
+     labels, and dependency trees. Leave high-conflict, architectural, migration,
+     shared-config, broad-refactor, or ambiguous beads for serial work.
+3. For each chosen bead, run `bd show <id>` to read the full description and
+   acceptance criteria, then claim it with `bd update <id> --status in_progress`
+   (or `bd set-state <id> in_progress`) so the loop's snapshot stays accurate.
+4. Do the actual work. Follow repo-level CLAUDE.md / AGENTS.md instructions.
+   - In serial mode, work the one bead yourself.
+   - In parallel mode, use available sub-agent/delegation tools for independent
+     beads when your harness supports them. Give each worker one bead, explicit
+     file/module ownership, and this rule: workers may edit and verify, but must
+     NOT close beads, make final commits, or revert others' changes. While
+     workers run, do useful non-overlapping coordinator work yourself.
+5. Integrate/review each result centrally. Verify acceptance criteria are met.
+   Run targeted tests/lint for worker changes plus broader tests when appropriate.
+6. Close only completed, verified beads with `bd close <id> -r "<one-line summary>"`.
+   Do not close beads merely because a worker attempted them. For failed or
+   unclear work, leave the bead in_progress/open with notes or create/link a
+   follow-up bead capturing what's missing.
+7. Commit your changes if the repo is a git repo and the user has not said
+   otherwise. Keep commits scoped and understandable; in parallel mode, prefer
+   one commit per completed bead or a clearly related batch commit.
 
 Rules:
-- Work exactly ONE bead per iteration. The loop will feed you back for the next.
-- Never close a bead you did not actually complete. If a bead is impossible
-  or wrong, `bd update` it with an explanation and leave it for a human, or
-  create a follow-up bead capturing what's missing.
+- Default/serial mode is `parallel: 1`, which means exactly ONE bead per
+  iteration. The loop will feed you back for the next.
+- Parallel mode may complete up to `parallel` safe, independent beads per
+  iteration, but correctness beats throughput. When in doubt, reduce the batch
+  size or handle risky beads serially.
+- Never close a bead you did not actually complete and verify. If a bead is
+  impossible or wrong, `bd update` it with an explanation and leave it for a
+  human, or create a follow-up bead capturing what's missing.
 - If you discover work that belongs in its own bead, create it with
   `bd create` and link dependencies (`bd dep add`) rather than scope-creeping.
 - The loop terminates automatically once open + in_progress + blocked all
@@ -151,6 +183,14 @@ PROMPT_EOF
 )
 
 PROMPT="$BASE_PROMPT"
+
+PROMPT="$PROMPT
+
+Parallelism configuration:
+- parallel: $PARALLEL
+- If parallel is 1, preserve serial mode and work exactly one bead this iteration.
+- If parallel is greater than 1, coordinate up to that many safe independent beads, using sub-agents only when available and appropriate."
+
 if [[ -n "$PARENTS_CSV" ]]; then
   PROMPT="$PROMPT
 
@@ -181,6 +221,7 @@ cat > "$STATE_FILE" <<EOF
 active: true
 iteration: 1
 max_iterations: $MAX_ITERATIONS
+parallel: $PARALLEL
 parents: "$PARENTS_CSV"
 started_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ---
@@ -215,6 +256,7 @@ cat <<EOF
 State file:      $STATE_FILE
 Iteration:       1
 Max iterations:  $(if [[ $MAX_ITERATIONS -gt 0 ]]; then echo "$MAX_ITERATIONS"; else echo "unlimited"; fi)
+Parallelism:     $PARALLEL
 $SCOPE_LINE
 
 The stop hook will keep feeding this prompt back until every scoped bead is

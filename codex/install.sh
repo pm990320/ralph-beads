@@ -129,8 +129,9 @@ Next steps:
         - typing \$ralph-beads in Codex and letting the model invoke the skill, or
         - using the /skills picker and selecting "ralph-beads", or
         - simply asking "run ralph-beads" (the skill description will trigger).
-     Pass guidance and --max-iterations N inline, e.g.
+     Pass guidance, --max-iterations N, and optional --parallel N inline, e.g.
         "\$ralph-beads prefer P0 first --max-iterations 25"
+        "\$ralph-beads --parallel 4 prefer independent docs/tests first"
   4. Cancel mid-loop with \$cancel-ralph-beads, or rm .claude/ralph-beads.local.md.
 
 To uninstall: $0 uninstall

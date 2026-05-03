@@ -1,6 +1,6 @@
 # ralph-beads
 
-A plugin that runs a [Ralph Wiggum](https://ghuntley.com/ralph/)–style self-referential loop driven by the [beads](https://github.com/steveyegge/beads) issue tracker (`bd` CLI). It iterates until every bead is closed. You do **not** supply a prompt — the prompt is built in and tells the agent to drain the beads queue one bead per iteration.
+A plugin that runs a [Ralph Wiggum](https://ghuntley.com/ralph/)–style self-referential loop driven by the [beads](https://github.com/steveyegge/beads) issue tracker (`bd` CLI). It iterates until every bead is closed. You do **not** supply a prompt — the prompt is built in and tells the agent to drain the beads queue one bead per iteration by default, with optional coordinator-style parallel batches via `--parallel N`.
 
 Ships for **Claude Code** (native plugin) and **Codex CLI** (install script that wires up custom prompts + Stop hook).
 
@@ -13,9 +13,9 @@ Ships for **Claude Code** (native plugin) and **Codex CLI** (install script that
 ┌──────────────────────────────────────────────────────┐
 │ each iteration                                        │
 │   1. bd ready --limit 20                              │
-│   2. pick highest-priority claimable bead             │
+│   2. pick one bead (default) or safe parallel batch   │
 │   3. bd update <id> --status in_progress              │
-│   4. do the work, verify acceptance criteria          │
+│   4. do/coordinate work, verify acceptance criteria   │
 │   5. bd close <id> -r "<summary>"                     │
 └──────────────────────────────────────────────────────┘
    │
@@ -58,13 +58,13 @@ Requires `jq` on `PATH` (used by both the installer and the Stop hook).
 
 | Harness | Invocation | Description |
 |---|---|---|
-| Claude Code | `/ralph-beads [GUIDANCE...] [--max-iterations N] [--parent ID[,ID...]]` | Start the loop. Extra args become operator guidance appended to the built-in prompt. `--max-iterations` defaults to 100 (`0` = unlimited). `--parent` scopes the loop to transitive descendants of one or more parent beads/epics. |
+| Claude Code | `/ralph-beads [GUIDANCE...] [--max-iterations N] [--parallel N] [--parent ID[,ID...]]` | Start the loop. Extra args become operator guidance appended to the built-in prompt. `--max-iterations` defaults to 100 (`0` = unlimited). `--parallel` defaults to 1 (serial); values >1 let the session coordinate safe independent beads with sub-agents. `--parent` scopes the loop to transitive descendants of one or more parent beads/epics. |
 | Claude Code | `/cancel-ralph-beads` | Delete the state file so the next Stop exits cleanly. |
 | Claude Code | `/ralph-beads:help` | In-session help. |
-| Codex | `$ralph-beads [GUIDANCE...] [--max-iterations N] [--parent ID[,ID...]]` (or `/skills` picker, or just ask "run ralph-beads under bd-42") | Same behavior as the Claude Code version. |
+| Codex | `$ralph-beads [GUIDANCE...] [--max-iterations N] [--parallel N] [--parent ID[,ID...]]` (or `/skills` picker, or just ask "run ralph-beads under bd-42") | Same behavior as the Claude Code version. |
 | Codex | `$cancel-ralph-beads` | Cancel the active loop. |
 
-Under Codex, Skills are selected by the model — there's no direct slash-command-with-args primitive. The skill's instructions tell the model to parse `--max-iterations N`, `--parent <id>`, and free-form guidance out of your message and forward them to `setup-ralph-beads.sh`.
+Under Codex, Skills are selected by the model — there's no direct slash-command-with-args primitive. The skill's instructions tell the model to parse `--max-iterations N`, `--parallel N`, `--parent <id>`, and free-form guidance out of your message and forward them to `setup-ralph-beads.sh`.
 
 ### Scoping to an epic (or several)
 
@@ -74,6 +74,18 @@ Pass `--parent <id>` (repeatable, or comma-separated) to restrict the loop to tr
 /ralph-beads --parent bd-42
 /ralph-beads --parent bd-42,bd-43
 /ralph-beads --parent bd-42 --max-iterations 25 prefer P0 first
+```
+
+
+### Parallel coordinator mode
+
+Pass `--parallel N` to let a single Ralph instance coordinate up to `N` safe, independent beads per iteration. The default is `--parallel 1`, which preserves the original one-bead-at-a-time behavior.
+
+In parallel mode, the prompt instructs the main session to act as coordinator: claim a small batch of independent ready beads, use sub-agents/delegation when the harness supports them, integrate/review results centrally, run verification, and close only completed beads itself. Workers are told not to close beads, make final commits, or revert others' changes. Risky work (migrations, architecture, shared config, broad refactors, ambiguous beads, or likely file conflicts) should remain serial even when `--parallel` is greater than 1.
+
+```
+/ralph-beads --parallel 4
+/ralph-beads --parent bd-42 --parallel 3 prefer docs/tests first
 ```
 
 ## Requirements
@@ -96,6 +108,9 @@ Pass `--parent <id>` (repeatable, or comma-separated) to restrict the loop to tr
 
 # Scope to multiple epics
 /ralph-beads --parent bd-42,bd-43 --max-iterations 25
+
+# Enable coordinator parallelism
+/ralph-beads --parallel 4 prefer independent docs/tests first
 
 # Extra operator guidance
 /ralph-beads prefer P0 first, run `make test` after each bead, never touch infra/
@@ -129,6 +144,7 @@ The Codex build reuses `hooks/stop-hook.sh` and `scripts/setup-ralph-beads.sh` �
 
 - The built-in prompt tells Claude to **not** close beads it didn't actually complete. There is no machine-enforceable check for that — trust the prompt + your review of the commits.
 - `--max-iterations` is the hard circuit breaker. Default is 100.
+- `--parallel` defaults to 1, preserving the original serial behavior. Values greater than 1 are prompt-level coordination guidance, not a machine guarantee that work is conflict-free.
 - If `bd` disappears mid-loop (e.g. uninstalled) the hook self-disables and removes the state file.
 
 ## Credit

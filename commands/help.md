@@ -8,12 +8,12 @@ Please explain the following to the user:
 
 ## What is ralph-beads?
 
-ralph-beads is a Claude Code plugin that runs a Ralph-Wiggum-style self-referential loop driven by the [beads](https://github.com/steveyegge/beads) issue tracker (`bd` CLI). Unlike the generic `ralph-wiggum` plugin, you do **not** provide a prompt — the prompt is baked in and tells Claude to drain the beads queue one bead at a time.
+ralph-beads is a Claude Code plugin that runs a Ralph-Wiggum-style self-referential loop driven by the [beads](https://github.com/steveyegge/beads) issue tracker (`bd` CLI). Unlike the generic `ralph-wiggum` plugin, you do **not** provide a prompt — the prompt is baked in and tells Claude to drain the beads queue one bead at a time by default, or coordinate safe independent batches with `--parallel N`.
 
 ## Loop mechanics
 
 1. `/ralph-beads` creates `.claude/ralph-beads.local.md` with a fixed prompt.
-2. The session works through **one bead per iteration**:
+2. The session works through **one bead per iteration by default**:
    - `bd ready` → pick highest-priority claimable bead
    - `bd update <id> --status in_progress`
    - Do the work, verify acceptance criteria
@@ -23,15 +23,17 @@ ralph-beads is a Claude Code plugin that runs a Ralph-Wiggum-style self-referent
    - `bd count --status in_progress`
    - `bd count --status blocked`
    If all three are 0 the loop ends. Otherwise the same prompt is fed back for the next iteration.
-4. `--max-iterations` (default 100) is a safety cap.
+4. `--max-iterations` (default 100) is a safety cap. `--parallel` defaults to 1, preserving serial behavior.
 
 No `<promise>` tag, no custom completion phrase — **completion is measured directly from beads state**.
 
 ## Commands
 
-### /ralph-beads [GUIDANCE...] [--max-iterations N] [--parent ID[,ID...]]
+### /ralph-beads [GUIDANCE...] [--max-iterations N] [--parallel N] [--parent ID[,ID...]]
 
-Start the loop. All positional args are optional and get appended as extra operator guidance (e.g. "prefer P0 first, run make test after each bead"). `--max-iterations 0` means unlimited.
+Start the loop. All positional args are optional and get appended as extra operator guidance (e.g. "prefer P0 first, run make test after each bead"). `--max-iterations 0` means unlimited. `--parallel N` allows up to N safe independent beads per iteration; default `1` is non-parallel.
+
+`--parallel N` makes the main session a coordinator: it can claim a safe batch, delegate independent beads to sub-agents when available, integrate/review centrally, verify, and close completed beads itself. Workers should not close beads, commit final changes, or revert others. Risky/conflicting work stays serial.
 
 `--parent <id>` (repeatable, comma-separated also accepted) scopes the loop to transitive descendants of the given bead(s). Both the picker (via `bd ready --parent <id>`) and the completion check use the scoped set — the loop ends when no descendants of the listed parents are open/in_progress/blocked. The parent beads themselves are never counted, so epics aren't required to be "closed" for the loop to finish.
 
