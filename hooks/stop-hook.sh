@@ -6,9 +6,20 @@
 
 set -euo pipefail
 
-# Drain the JSON hook payload on stdin — we don't currently inspect it, but
-# leaving it unread can cause the harness to block or flag a broken pipe.
-cat >/dev/null
+# Read the JSON hook payload. Codex hooks are configured globally, so always
+# switch to the event cwd before checking repo-local ralph state. Without this,
+# the hook can accidentally continue a loop from whatever cwd the hook process
+# inherited instead of the active Codex thread's repository.
+HOOK_INPUT=$(cat)
+HOOK_CWD=$(jq -r '.cwd // empty' <<< "$HOOK_INPUT" 2>/dev/null || true)
+if [[ -n "$HOOK_CWD" ]]; then
+  if [[ -d "$HOOK_CWD" ]]; then
+    cd "$HOOK_CWD"
+  else
+    echo "⚠️  ralph-beads: hook cwd does not exist: $HOOK_CWD — allowing stop" >&2
+    exit 0
+  fi
+fi
 
 STATE_FILE=".claude/ralph-beads.local.md"
 
