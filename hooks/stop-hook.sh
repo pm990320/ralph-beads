@@ -6,6 +6,10 @@
 
 set -euo pipefail
 
+# Codex Desktop hooks can run with a minimal launchd-style PATH. Include common
+# user tool locations so jq and bd resolve without requiring wrapper commands.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+
 # Read the JSON hook payload. Codex hooks are configured globally, so always
 # switch to the event cwd before checking repo-local ralph state. Without this,
 # the hook can accidentally continue a loop from whatever cwd the hook process
