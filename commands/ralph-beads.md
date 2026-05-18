@@ -1,6 +1,6 @@
 ---
 description: "Start a ralph loop driven by beads (bd) — runs until every bead is closed"
-argument-hint: "[optional guidance] [--max-iterations N] [--parallel N] [--parent ID[,ID...]]"
+argument-hint: "[optional guidance] [--max-iterations N] [--parallel N] [--parent ID[,ID...]] [--allow-main-worktree]"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-beads.sh:*)"]
 hide-from-slash-command-tool: "true"
 ---

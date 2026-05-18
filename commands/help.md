@@ -29,13 +29,27 @@ No `<promise>` tag, no custom completion phrase — **completion is measured dir
 
 ## Commands
 
-### /ralph-beads [GUIDANCE...] [--max-iterations N] [--parallel N] [--parent ID[,ID...]]
+### /ralph-beads [GUIDANCE...] [--max-iterations N] [--parallel N] [--parent ID[,ID...]] [--allow-main-worktree]
 
 Start the loop. All positional args are optional and get appended as extra operator guidance (e.g. "prefer P0 first, run make test after each bead"). `--max-iterations 0` means unlimited. `--parallel N` allows up to N safe independent beads per iteration; default `1` is non-parallel.
 
 `--parallel N` makes the main session a coordinator: it can claim a safe batch, delegate independent beads to sub-agents when available, integrate/review centrally, verify, and close completed beads itself. Workers should not close beads, commit final changes, or revert others. Risky/conflicting work stays serial.
 
 `--parent <id>` (repeatable, comma-separated also accepted) scopes the loop to transitive descendants of the given bead(s). Both the picker (via `bd ready --parent <id>`) and the completion check use the scoped set — the loop ends when no descendants of the listed parents are open/in_progress/blocked. The parent beads themselves are never counted, so epics aren't required to be "closed" for the loop to finish.
+
+### Multi-instance safety: worktrees
+
+The Stop hook fires for **every** Claude Code / Codex session whose cwd is the loop's directory, and the loop state file (`.claude/ralph-beads.local.md`) is shared by path. If two agents are working in the same checkout, one session's Stop hook will re-prompt the other — they will fight each other and corrupt the loop.
+
+To prevent this, `/ralph-beads` refuses to start in the **main git worktree** by default. Run each agent in its own linked worktree instead:
+
+```
+git worktree add ../<repo>-<task> -b <branch>
+cd ../<repo>-<task>
+/ralph-beads ...
+```
+
+Linked worktrees have distinct paths, so each gets its own state file and the Stop hooks don't cross-talk. Pass `--allow-main-worktree` to bypass the check when you know you're the only agent in this checkout.
 
 ### /cancel-ralph-beads
 

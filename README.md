@@ -147,6 +147,20 @@ The Codex build reuses `hooks/stop-hook.sh` and `scripts/setup-ralph-beads.sh` â
 - `--parallel` defaults to 1, preserving the original serial behavior. Values greater than 1 are prompt-level coordination guidance, not a machine guarantee that work is conflict-free.
 - If `bd` disappears mid-loop (e.g. uninstalled) the hook self-disables and removes the state file.
 
+### Multi-instance safety: run each agent in its own worktree
+
+The Stop hook is scoped to **cwd**, not to a specific Claude Code / Codex session. Every session whose cwd is the loop's directory will have its Stop event handled by the hook, and the loop state lives at `.claude/ralph-beads.local.md` in that cwd. If two agents are working in the same checkout, one session's Stop hook will re-prompt the other â€” they fight, and the loop becomes incoherent.
+
+ralph-beads refuses to start in the **main git worktree** by default. The recommended setup is one git worktree per agent:
+
+```
+git worktree add ../myrepo-feat-a -b feat-a
+cd ../myrepo-feat-a
+/ralph-beads --parent bd-42
+```
+
+Each worktree has a distinct path, so each Claude Code / Codex session in it has its own state file and its own hook-scoped cwd, with no cross-talk. To bypass the check (single-instance use only, e.g. you're definitely the only agent here), pass `--allow-main-worktree`.
+
 ## Credit
 
 Built on the structure of Anthropic's [ralph-wiggum](https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum) plugin, retargeted at beads-driven task queues.

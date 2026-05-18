@@ -9,6 +9,7 @@ MAX_ITERATIONS=100
 PARALLEL=1
 EXTRA_GUIDANCE_PARTS=()
 PARENT_IDS=()
+ALLOW_MAIN_WORKTREE=0
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -30,6 +31,12 @@ OPTIONS:
                          Repeatable; comma-separated also accepted.
   --parallel <n>         Maximum beads/sub-agents to coordinate per iteration
                          (default: 1, which preserves serial behavior).
+  --allow-main-worktree  Allow starting in the main git worktree. By default the
+                         loop refuses to start there because the Stop hook fires
+                         for every session sharing that cwd, so multiple agents
+                         in the same checkout interfere with each other. Run
+                         each agent in its own `git worktree` instead, or pass
+                         this flag for single-instance use.
   -h, --help             Show this help
 
 DESCRIPTION:
@@ -43,12 +50,19 @@ DESCRIPTION:
   to transitive descendants of the given bead(s). No `<promise>` tag is required
   — completion is measured from beads state.
 
+  Multi-instance safety: the Stop hook is scoped to cwd, and the loop state file
+  lives at .claude/ralph-beads.local.md in that cwd. If two sessions share the
+  same checkout, one session's Stop hook can re-prompt another. ralph-beads
+  refuses to start in the main worktree of a git repo unless --allow-main-worktree
+  is passed. Linked worktrees (created with `git worktree add`) are allowed.
+
 EXAMPLES:
   /ralph-beads
   /ralph-beads --max-iterations 50
   /ralph-beads --parent bd-42
   /ralph-beads --parent bd-42,bd-43 prefer P0 first
   /ralph-beads --parallel 4 prefer independent docs/tests first
+  /ralph-beads --allow-main-worktree prefer P0 first
   /ralph-beads prefer P0 and P1 first, run make test after each bead
 
 CANCEL:
@@ -84,6 +98,10 @@ HELP_EOF
       done
       shift 2
       ;;
+    --allow-main-worktree)
+      ALLOW_MAIN_WORKTREE=1
+      shift
+      ;;
     *)
       EXTRA_GUIDANCE_PARTS+=("$1")
       shift
@@ -101,6 +119,43 @@ if [[ ! -d .beads ]]; then
   echo "❌ ralph-beads: no .beads directory in $(pwd)." >&2
   echo "   Run 'bd init' first, or cd into a beads-enabled repo." >&2
   exit 1
+fi
+
+# Multi-instance safety check. The Stop hook fires for every Claude Code / Codex
+# session whose cwd is this directory, and the loop state file is shared by
+# path — so two agents working in the same checkout will re-prompt each other.
+# Refuse to start in the main git worktree unless explicitly overridden. Linked
+# worktrees (`git worktree add ...`) live at distinct paths and are allowed.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  _gd=$(git rev-parse --git-dir 2>/dev/null || true)
+  _cd=$(git rev-parse --git-common-dir 2>/dev/null || true)
+  _gd_abs=""
+  _cd_abs=""
+  [[ -n "$_gd" && -d "$_gd" ]] && _gd_abs=$(cd "$_gd" && pwd -P)
+  [[ -n "$_cd" && -d "$_cd" ]] && _cd_abs=$(cd "$_cd" && pwd -P)
+  if [[ -n "$_gd_abs" && -n "$_cd_abs" && "$_gd_abs" == "$_cd_abs" ]]; then
+    if [[ "$ALLOW_MAIN_WORKTREE" -ne 1 ]]; then
+      cat >&2 <<'WORKTREE_EOF'
+❌ ralph-beads: refusing to start in the main git worktree.
+
+   The Stop hook fires for every Claude Code / Codex session whose cwd is this
+   directory, and the loop state file (.claude/ralph-beads.local.md) is shared
+   by path. If a second agent is running in this checkout, this loop's Stop
+   hook will re-prompt that session — and vice versa.
+
+   Recommended: run each agent in its own git worktree.
+
+     git worktree add ../<repo>-<task> -b <branch>
+     cd ../<repo>-<task>
+     /ralph-beads ...
+
+   To bypass this check (single-instance use only), pass --allow-main-worktree.
+WORKTREE_EOF
+      exit 1
+    else
+      echo "⚠️  ralph-beads: starting in main worktree because --allow-main-worktree was passed. Ensure no other agents are running in $(pwd)." >&2
+    fi
+  fi
 fi
 
 # Validate any --parent IDs exist before we write state. Fail fast rather than

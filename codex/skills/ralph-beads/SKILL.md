@@ -28,13 +28,15 @@ If `.claude/ralph-beads.local.md` does not already exist in the current working 
 - Extract `--max-iterations N` if present (non-negative integer; 0 = unlimited; default 100).
 - Extract `--parent <id>` (repeatable; also accept comma-separated like `--parent bd-42,bd-43`) if present. Scopes the loop to transitive descendants of those beads.
 - Extract `--parallel N` if present (positive integer; default 1). `1` preserves serial behavior. Values greater than 1 let the coordinator use sub-agents for safe independent beads.
+- Extract `--allow-main-worktree` if present (boolean flag). Without it, the setup script refuses to start in the main git worktree to avoid Stop-hook cross-talk between multiple agents sharing the same checkout. Forward the flag verbatim if the user passes it; otherwise omit it.
 - Everything else becomes free-form **guidance** — pass it through as positional args, preserving the user's exact words.
 - Example: user says *"ralph-beads prefer P0 first and run make test after each bead --max-iterations 50"* → run `setup-ralph-beads.sh prefer P0 first and run make test after each bead --max-iterations 50`.
 - Example: user says *"ralph-beads under bd-42"* → run `setup-ralph-beads.sh --parent bd-42`.
 - Example: user says *"ralph-beads --parallel 4 docs and tests first"* → run `setup-ralph-beads.sh --parallel 4 docs and tests first`.
+- Example: user says *"ralph-beads, I'm the only agent here, just run it"* → run `setup-ralph-beads.sh --allow-main-worktree` (the user is explicitly waiving the multi-instance check).
 - Example: user says just *"ralph-beads"* → run `setup-ralph-beads.sh` with no args.
 
-If the setup script fails (missing `bd` on PATH, no `.beads/` directory, bad args), **stop** and surface the error to the user. Do not try to proceed without the state file.
+If the setup script fails (missing `bd` on PATH, no `.beads/` directory, started in main git worktree without `--allow-main-worktree`, bad args), **stop** and surface the error to the user verbatim. Do not retry by adding `--allow-main-worktree` yourself — the user needs to either move into a `git worktree add` checkout or explicitly tell you to bypass the check.
 
 If `.claude/ralph-beads.local.md` already exists (e.g. the Stop hook re-injected this skill mid-loop), skip Step 0 entirely and go straight to Step 1.
 
